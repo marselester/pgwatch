@@ -70,6 +70,7 @@ var knownMetrics = []string{
 	"stat_io",
 	"stat_ssl",
 	"stat_statements",
+	"stat_statements_by_user",
 	"stat_statements_calls",
 	"stat_statements_no_query_text",
 	"subscription_stats",

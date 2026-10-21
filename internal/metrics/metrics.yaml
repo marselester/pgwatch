@@ -2839,6 +2839,81 @@ metrics:
                     ORDER BY
                         jit_generation_time DESC
                     LIMIT 100) a) b;
+    stat_statements_by_user:
+        description: >
+            This metric collects statistics from pg_stat_statements for each query and user.
+            It reports the top 100 queries by total execution time and by calls, summed over all users.
+        init_sql: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        sqls:
+            14: |-
+                WITH /* pgwatch_generated */ q_data AS (
+                    SELECT
+                        queryid,
+                        userid,
+                        sum(calls)::int8 AS calls,
+                        round(sum(total_exec_time)::numeric, 3)::double precision AS total_time,
+                        round(sum(total_plan_time)::numeric, 3)::double precision AS total_plan_time,
+                        sum(rows)::int8 AS rows,
+                        sum(shared_blks_hit)::int8 AS shared_blks_hit,
+                        sum(shared_blks_read)::int8 AS shared_blks_read,
+                        sum(shared_blks_written)::int8 AS shared_blks_written,
+                        sum(shared_blks_dirtied)::int8 AS shared_blks_dirtied,
+                        sum(temp_blks_read)::int8 AS temp_blks_read,
+                        sum(temp_blks_written)::int8 AS temp_blks_written,
+                        sum(wal_fpi)::int8 AS wal_fpi,
+                        sum(wal_bytes)::int8 AS wal_bytes
+                    FROM pg_stat_statements
+                    WHERE
+                        calls > 5
+                        AND total_exec_time > 5
+                        AND dbid = (
+                            SELECT oid FROM pg_database WHERE datname = current_database()
+                        )
+                        AND NOT upper(query::varchar(50)) LIKE ANY (ARRAY[
+                            'DEALLOCATE%',
+                            'SET %',
+                            'RESET %',
+                            'BEGIN%',
+                            'BEGIN;',
+                            'COMMIT%',
+                            'END%',
+                            'ROLLBACK%',
+                            'SHOW%'
+                        ])
+                    GROUP BY queryid, userid
+                )
+                SELECT
+                    (extract(epoch FROM now()) * 1e9)::int8 AS epoch_ns,
+                    queryid::text AS tag_queryid,
+                    pg_get_userbyid(userid)::text AS tag_user,
+                    calls,
+                    total_time,
+                    total_plan_time,
+                    rows,
+                    shared_blks_hit,
+                    shared_blks_read,
+                    shared_blks_written,
+                    shared_blks_dirtied,
+                    temp_blks_read,
+                    temp_blks_written,
+                    wal_fpi,
+                    wal_bytes
+                FROM q_data
+                WHERE
+                    queryid IN (
+                        SELECT queryid
+                        FROM q_data
+                        GROUP BY queryid
+                        ORDER BY sum(total_time) DESC
+                        LIMIT 100
+                    )
+                    OR queryid IN (
+                        SELECT queryid
+                        FROM q_data
+                        GROUP BY queryid
+                        ORDER BY sum(calls) DESC
+                        LIMIT 100
+                    )
     stat_statements_calls:
         description: >
             This metric collects statistics from the `pg_stat_statements` extension, focusing on the number of calls and total execution time.
@@ -5264,6 +5339,7 @@ presets:
             stat_io: 30
             stat_ssl: 30
             stat_statements: 30
+            stat_statements_by_user: 30
             stat_statements_calls: 30
             stat_statements_no_query_text: 30
             subscription_stats: 30
